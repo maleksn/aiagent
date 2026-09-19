@@ -1,6 +1,6 @@
 # Autonomous AI Software Engineering Agent
 
-An autonomous, multi-turn AI software engineering agent powered by the **Google GenAI SDK** (`google-genai`) and Google's **Gemini 2.5 Flash** model. The agent is engineered to autonomously inspect source code, diagnose bugs and logical discrepancies, apply verified code fixes, and run unit tests within a securely sandboxed environment.
+An autonomous, multi-turn AI software engineering agent powered by the **Google GenAI SDK** (`google-genai`) and Google's **Gemini 2.5 Flash** model. Engineered according to professional software engineering principles (**SOLID**, **DRY**, **KISS**), the agent autonomously inspects source code, diagnoses bugs and logical discrepancies, applies verified code fixes, and executes unit tests within a strictly sandboxed environment.
 
 ---
 
@@ -8,10 +8,11 @@ An autonomous, multi-turn AI software engineering agent powered by the **Google 
 
 - [Overview](#overview)
 - [Architecture & Workflow](#architecture--workflow)
+- [Software Engineering Principles](#software-engineering-principles)
 - [Core Features](#core-features)
 - [Security & Secrets Management](#security--secrets-management)
 - [Repository Structure](#repository-structure)
-- [Available Agent Tools](#available-agent-tools)
+- [Available Agent Tools & Registry](#available-agent-tools--registry)
 - [The Target Playground (`calculator/`)](#the-target-playground-calculator)
 - [Getting Started](#getting-started)
   - [Prerequisites](#prerequisites)
@@ -20,8 +21,8 @@ An autonomous, multi-turn AI software engineering agent powered by the **Google 
 - [Usage Guide](#usage-guide)
   - [Basic Execution](#basic-execution)
   - [Verbose Mode](#verbose-mode)
-  - [Standard Python Execution](#standard-python-execution)
-- [Running Tests](#running-tests)
+  - [Custom Model & Working Directory](#custom-model--working-directory)
+- [Running Automated Tests](#running-automated-tests)
 - [License](#license)
 
 ---
@@ -30,11 +31,11 @@ An autonomous, multi-turn AI software engineering agent powered by the **Google 
 
 Modern software debugging requires iterative reasoning: reading file structures, inspecting implementations, analyzing mathematical and logical precedence, modifying code, and verifying behavior with tests.
 
-This project implements a complete **ReAct (Reason + Act)** autonomous agent loop. When provided with a user prompt, the agent:
-1. Formulates a step-by-step hypothesis.
-2. Interacts with the filesystem and executes commands via dedicated function calls (tools).
-3. Receives execution outputs and errors as feedback in its conversational context.
-4. Iterates autonomously (up to 20 turns) until the task is completely solved.
+This project implements an autonomous **ReAct (Reason + Act)** agent loop:
+1. **Formulate Hypothesis**: Analyzes user prompt and repository layout.
+2. **Execute Tools**: Dispatches filesystem inspections, file modifications, or subprocess executions via decoupled, registered tools.
+3. **Receive Feedback**: Collects stdout, stderr, file contents, and error diagnostics directly into conversational context.
+4. **Iterate Autonomously**: Loops (up to a configurable iteration limit, default: 20) until the task is verified and solved.
 
 ---
 
@@ -47,87 +48,110 @@ This project implements a complete **ReAct (Reason + Act)** autonomous agent loo
                                        |
                                        v
                              +-------------------+
-                   +-------->| Gemini 2.5 Flash  |<---------+
-                   |         |  (GenAI Client)   |          |
-                   |         +---------+---------+          |
-                   |                   |                    |
-        Function   |       [Function Call Generated]        |
-        Response   |                   |                    |
-        Feedback   |                   v                    |
-                   |         +-------------------+          |
-                   |         | call_function.py  |          |
-                   |         |  (Dispatcher &    |          |
-                   |         | Sandboxed Scope)  |          |
-                   |         +---------+---------+          |
-                   |                   |                    |
-                   |                   v                    |
-                   |       +-----------------------+        |
-                   |       |   Functions Library   |        |
-                   |       | - get_files_info      |        |
-                   |       | - get_file_content    |        |
-                   |       | - write_file          |        |
-                   |       | - run_python_file     |        |
-                   |       +-----------+-----------+        |
-                   |                   |                    |
-                   +-------------------+                    |
-                                                            |
-                             [No more tool calls / Finished]|
-                                       |                    |
-                                       v                    |
-                             +-------------------+          |
-                             |   Final Report    +----------+
+                             |      main.py      | (CLI Entrypoint)
+                             +---------+---------+
+                                       |
+                                       v
+                             +-------------------+
+                             |    Agent Core     |
+                    +------->| (agent/core.py)   |<------+
+                    |        +---------+---------+       |
+                    |                  |                 |
+                    |                  v                 |
+                    |        +-------------------+       |
+         Model      |        |   BaseLLMClient   |       |
+       Response     |        | (llm/gemini.py)   |       |
+                    |        +---------+---------+       |
+                    |                  |                 |
+                    |                  v                 |
+                    |        +-------------------+       |
+                    |        | Gemini 2.5 Flash  |       |
+                    |        +---------+---------+       |
+                    |                  |                 |
+                    |       [Function Call Generated]    |
+                    |                  |                 |
+                    |                  v                 |
+                    |        +-------------------+       |
+                    |        |   ToolRegistry    |       |
+                    |        | (tools/registry)  |       |
+                    |        +---------+---------+       |
+                    |                  |                 |
+                    |         +--------+--------+        |
+                    |         |                 |        |
+                    |         v                 v        |
+                    |   +-----------+     +-----------+  |
+                    |   | FileTools |     | RunPython |  |
+                    |   +-----+-----+     +-----+-----+  |
+                    |         |                 |        |
+                    |         +--------+--------+        |
+                    |                  |                 |
+                    |                  v                 |
+                    |         +-----------------+        |
+                    |         | tools/security  |        | (DRY Path Sandboxing)
+                    |         +-----------------+        |
+                    |                  |                 |
+                    +------------------+                 |
+                                                         |
+                              [Task Solved / Text Output]|
+                                       |                 |
+                                       v                 |
+                             +-------------------+       |
+                             |   Final Result    +-------+
                              +-------------------+
 ```
 
-### Agent Step-by-Step Cycle
-1. **User Request**: Initial prompt passed via CLI to `main.py`.
-2. **Context Assembly**: Prompt combined with a strict `system_prompt` from `prompts.py` enforcing systematic debugging.
-3. **Model Generation**: Gemini 2.5 Flash determines whether to invoke tools or produce the final response.
-4. **Tool Execution**: Tool calls dispatched to `call_function.py`, enforcing sandboxed relative paths inside `./calculator`.
-5. **Observation Loop**: Execution results (stdout, file content, errors) fed back into the conversation context as role `user` / `tool` parts.
-6. **Resolution**: Once satisfied, the model returns a direct summary without function calls and finishes execution.
+---
+
+## Software Engineering Principles
+
+The architecture adheres strictly to best-in-class software engineering standards:
+
+* **DRY (Don't Repeat Yourself)**: All path resolution, boundary checks, and sandbox validation are unified inside [`tools/security.py`](tools/security.py). No duplicate validation logic.
+* **Single Responsibility (SRP)**:
+  - `main.py`: CLI parsing and exit codes only.
+  - `agent/core.py`: Conversation orchestration and multi-turn state loop.
+  - `llm/`: Model API communication and schema translation.
+  - `tools/`: Tool implementation without dependency on LLM orchestration.
+* **Open/Closed (OCP)**: Adding a new tool is done by extending `BaseTool` and annotating with `@default_registry.register`. No central dispatch file requires modification.
+* **Liskov Substitution & Interface Segregation (LSP & ISP)**: Tools inherit from [`BaseTool`](tools/base.py) with a unified `execute(**kwargs)` interface.
+* **Dependency Inversion (DIP)**: The agent depends on the abstract [`BaseLLMClient`](llm/base.py), allowing seamless swapping or mocking of LLM providers for offline testing.
 
 ---
 
 ## Core Features
 
-- **Autonomous ReAct Loop**: Supports up to 20 multi-turn iterations with full history tracking.
-- **Strict Methodological Prompting**: The system prompt (`prompts.py`) enforces:
-  1. *Locate*: Explore directory layout before guessing.
-  2. *Inspect*: Read actual code completely; never assume implementations.
-  3. *Analyze*: Reason through logic, data structures, and operator precedence rules.
-  4. *Fix*: Apply targeted, permanent fixes.
-  5. *Verify*: Execute tests and ensure clean state.
-- **Deterministic Evaluation**: Runs with `temperature=0` for predictable, reproducible engineering tasks.
-- **Path Sandboxing**: Built-in defense against path traversal (`../`, absolute paths, etc.) ensuring all operations remain inside the target directory.
-- **Execution Safeguards**: Subprocess execution is restricted to `.py` files with strict 30-second timeouts.
-- **Token Efficiency**: File reads are automatically capped at `MAX_CHARS` (10,000 characters) to prevent context exhaustion.
+- **Autonomous ReAct Loop**: Configurable multi-turn iterations (default: 20) with token tracking and termination safeguards.
+- **Dynamic Tool Registry**: Extensible tool registration via class decorator pattern (`@register`).
+- **Path Sandboxing (DRY)**: Centralized sandbox protection preventing directory traversal (`../`, absolute path escapes).
+- **Execution Safeguards**: Subprocess execution restricted to `.py` files with strict 30-second timeout enforcement.
+- **Token Efficiency**: File content automatically truncated at `MAX_CHARS` (default: 10,000 characters) to preserve context limits.
+- **Provider Abstraction**: Decoupled LLM client layer enabling easy integration of other providers or local models.
+- **Full Test Suite**: 100% automated test coverage using `pytest` with mock-based testing for zero-cost test runs.
 
 ---
 
 ## Security & Secrets Management
 
-Security is a primary focus of this project:
+Security is built into the architecture from the ground up:
 
 ### 1. API Keys & Credentials
-- **No Hardcoded Keys**: No API keys, credentials, or tokens are committed to source control.
-- **Environment Isolation**: The application loads credentials from `.env` via `python-dotenv`.
-- **Git Protection**: `.gitignore` is configured to ignore all `.env*` files, preventing accidental commits or pushes to remote repositories.
-- **Template Provided**: `.env.example` provides a clean, key-free template for developers.
+- **No Hardcoded Secrets**: Secrets are loaded from `.env` via `python-dotenv`.
+- **Git Protection**: `.gitignore` strictly excludes all `.env*` files.
+- **Template Provided**: `.env.example` provides a clean placeholder for required configuration keys.
 
 ### 2. Path Traversal & Sandboxing Protection
-Every filesystem tool uses canonical path validation:
+All filesystem operations are routed through `resolve_safe_path()` in `tools/security.py`:
 ```python
 working_dir_abs = os.path.abspath(working_directory)
-target_path = os.path.normpath(os.path.join(working_dir_abs, file_path))
-valid_target = os.path.commonpath([working_dir_abs, target_path]) == working_dir_abs
+target_path = os.path.normpath(os.path.join(working_dir_abs, path))
+if os.path.commonpath([working_dir_abs, target_path]) != working_dir_abs:
+    raise SecurityError(f'Cannot access "{path}" as it is outside the permitted working directory')
 ```
-Attempts to escape the working directory (e.g., `../../etc/passwd` or `/bin/cat`) are immediately rejected.
 
 ### 3. Subprocess Execution Isolation
-- Commands run with `cwd=working_dir_abs`.
-- Only `.py` files can be executed.
-- Subprocesses timeout after 30 seconds to prevent infinite loops or hanging processes.
+- Subprocess execution sets `cwd` strictly to the sandboxed working directory.
+- Only `.py` files are permitted to execute.
+- Strict 30-second timeout prevents infinite execution or denial of service.
 
 ---
 
@@ -138,61 +162,76 @@ aiagent/
 ├── .env.example               # Template for environment variables (safe to commit)
 ├── .gitignore                  # Git ignore rules (protects .env, caches, venv)
 ├── .python-version             # Python version pin (3.10)
-├── README.md                   # Project documentation
-├── pyproject.toml              # Project dependencies and packaging metadata
+├── README.md                   # Comprehensive project documentation
+├── pyproject.toml              # Dependencies, packaging, and pytest configuration
 ├── uv.lock                     # Deterministic dependency lockfile
+├── config.py                   # Centralized typed configuration (Config dataclass)
 │
-├── main.py                     # CLI entrypoint and agent ReAct loop
-├── prompts.py                  # System instruction prompt for the autonomous agent
-├── call_function.py            # Function declarations & dispatcher for Gemini tools
-├── config.py                   # Global configuration settings (MAX_CHARS limit)
+├── main.py                     # CLI entrypoint for running the agent
+├── prompts.py                  # System instruction prompt for debugging workflows
 │
-├── functions/                  # Tool implementations exposed to Gemini
-│   ├── get_files_info.py       # Lists directory contents, sizes, and file types
-│   ├── get_file_content.py     # Reads file content with size limits and truncation
-│   ├── write_file.py           # Creates or overwrites files safely
-│   └── run_python_file.py      # Executes Python files within a sandboxed subprocess
+├── agent/                      # Core agent orchestration module
+│   ├── __init__.py
+│   └── core.py                 # Agent loop, multi-turn context, and token usage
 │
-├── calculator/                 # Target project (playground for the agent)
-│   ├── main.py                 # Calculator CLI application
-│   ├── tests.py                # Unit test suite for calculator operations
-│   ├── lorem.txt               # Sample text file used for tool testing
-│   └── pkg/
-│       ├── calculator.py       # Core calculator logic (infix evaluator)
-│       ├── render.py           # Output formatter (JSON rendering)
-│       └── morelorem.txt       # Nested sample text file
+├── llm/                        # LLM provider abstraction layer (DIP)
+│   ├── __init__.py
+│   ├── base.py                 # BaseLLMClient abstract interface
+│   └── gemini.py               # Google Gemini client implementation
 │
-└── test_*.py                   # Tool boundary & security verification tests
-    ├── test_get_files_info.py  # Tests directory listing and traversal blocking
-    ├── test_get_file_content.py# Tests file reading, truncation, and path safety
-    ├── test_run_python_file.py # Tests Python execution, args, and timeout safety
-    └── test_write_file.py      # Tests safe file writing and permission boundaries
+├── tools/                      # Modular tool ecosystem (OCP & DRY)
+│   ├── __init__.py
+│   ├── base.py                 # BaseTool abstract class
+│   ├── registry.py             # ToolRegistry with decorator support (@register)
+│   ├── security.py             # Centralized path resolution & sandbox validation
+│   ├── file_tools.py           # get_files_info, get_file_content, write_file
+│   └── execution_tools.py      # run_python_file with timeout protection
+│
+├── functions/                  # Backwards-compatible shims
+│   ├── get_files_info.py
+│   ├── get_file_content.py
+│   ├── write_file.py
+│   └── run_python_file.py
+│
+├── tests/                      # Automated test suite (pytest)
+│   ├── test_security.py        # Path traversal & sandbox boundary tests
+│   ├── test_tools.py           # Tool registration, execution, and boundary tests
+│   └── test_agent.py           # Agent orchestration, mocking, and iteration tests
+│
+└── calculator/                 # Target project (playground for the agent)
+    ├── main.py                 # Calculator CLI application
+    ├── tests.py                # Unit test suite for calculator operations
+    ├── lorem.txt               # Sample text file used for tool testing
+    └── pkg/
+        ├── calculator.py       # Core calculator logic (infix evaluator)
+        ├── render.py           # Output formatter (JSON rendering)
+        └── morelorem.txt       # Nested sample text file
 ```
 
 ---
 
-## Available Agent Tools
+## Available Agent Tools & Registry
 
-The agent has access to four tools registered in `call_function.py`:
+All tools inherit from [`BaseTool`](tools/base.py) and are registered automatically with [`default_registry`](tools/registry.py):
 
 | Tool | Parameters | Description | Security Controls |
 | :--- | :--- | :--- | :--- |
-| `get_files_info` | `directory: str = "."` | Lists files, sizes, and directory status. | Rejects paths outside working directory. |
-| `get_file_content` | `file_path: str` | Reads file content as plain text. | Path validation + 10,000 character truncation. |
-| `write_file` | `file_path: str`, `content: str` | Writes or overwrites a file. | Path validation + directory creation safety. |
-| `run_python_file` | `file_path: str`, `args: list[str]` | Executes a Python file in a subprocess. | Must end with `.py` + 30s timeout + isolated CWD. |
+| `get_files_info` | `directory: str = "."` | Lists directory files, byte sizes, and directory status. | Rejects paths escaping the working directory. |
+| `get_file_content` | `file_path: str` | Reads file content with character truncation protection. | Path validation + 10,000 character truncation. |
+| `write_file` | `file_path: str`, `content: str` | Writes or overwrites a file safely. | Path validation + automatic directory creation. |
+| `run_python_file` | `file_path: str`, `args: list[str] = None` | Executes a Python script in a sandboxed subprocess. | Must be `.py` + 30s timeout + isolated CWD. |
 
 ---
 
 ## The Target Playground (`calculator/`)
 
-The repository includes a self-contained sample project inside `calculator/` that serves as the testing ground for the AI agent:
+The repository includes a sample project inside `calculator/` that serves as the testing ground for the AI agent:
 - **`calculator/pkg/calculator.py`**: An arithmetic evaluator implementing infix evaluation with operator precedence (`+`, `-`, `*`, `/`).
-- **`calculator/pkg/render.py`**: Formats calculation results into formatted JSON.
+- **`calculator/pkg/render.py`**: Formats calculation results into JSON.
 - **`calculator/main.py`**: CLI wrapper accepting expressions such as `"3 + 5 * 2"`.
 - **`calculator/tests.py`**: A `unittest` suite covering arithmetic expressions and error conditions.
 
-The agent is directed by default to `./calculator` as its working directory, allowing it to autonomously discover issues, run tests, fix logic bugs (e.g., precedence mistakes), and verify fixes.
+The agent defaults to `./calculator` as its working directory.
 
 ---
 
@@ -200,7 +239,7 @@ The agent is directed by default to `./calculator` as its working directory, all
 
 ### Prerequisites
 - **Python 3.10+**
-- A **Google Gemini API Key** (available free from [Google AI Studio](https://aistudio.google.com/))
+- A **Google Gemini API Key** (get one free at [Google AI Studio](https://aistudio.google.com/))
 - (Recommended) **uv** package manager: [https://docs.astral.sh/uv/](https://docs.astral.sh/uv/)
 
 ---
@@ -208,7 +247,6 @@ The agent is directed by default to `./calculator` as its working directory, all
 ### Installation
 
 #### Option A: Using `uv` (Recommended)
-Fast, reproducible dependency resolution using `uv.lock`:
 ```bash
 # Clone the repository
 git clone https://github.com/maleksn/aiagent.git
@@ -229,7 +267,7 @@ python3 -m venv .venv
 source .venv/bin/activate  # On Windows: .venv\Scripts\activate
 
 # Install required dependencies
-pip install google-genai==1.12.1 python-dotenv==1.1.0
+pip install -e .
 ```
 
 ---
@@ -241,85 +279,63 @@ pip install google-genai==1.12.1 python-dotenv==1.1.0
    cp .env.example .env
    ```
 
-2. Open `.env` and add your Gemini API key:
+2. Add your Gemini API key inside `.env`:
    ```env
    GEMINI_API_KEY="AIzaSyYourActualAPIKeyHere"
    ```
-
-> [!IMPORTANT]
-> Never commit your `.env` file to version control. The repository's `.gitignore` automatically prevents `.env` files from being tracked.
 
 ---
 
 ## Usage Guide
 
 ### Basic Execution
-Run the agent by providing a task description as an argument:
+Run the agent by passing the engineering task description as an argument:
 
 ```bash
 uv run python main.py "Inspect the calculator project and check if all tests pass."
 ```
 
-Or ask the agent to find and fix bugs:
+Or ask the agent to diagnose and repair bugs:
 
 ```bash
 uv run python main.py "Investigate the calculator codebase, fix any operator precedence bugs, and verify with tests."
 ```
 
 ### Verbose Mode
-Use the `--verbose` flag to view iteration tokens, individual tool invocations, and function responses:
+Use the `--verbose` flag to inspect each iteration turn, token counts, and tool outputs:
 
 ```bash
 uv run python main.py "Run tests and summarize findings" --verbose
 ```
 
-### Standard Python Execution
-If you are using an activated virtual environment instead of `uv`:
+### Custom Model & Working Directory
+You can customize the model and working directory directly via CLI arguments:
+
 ```bash
-python main.py "Inspect the calculator project" --verbose
+uv run python main.py "Find issues" --working-dir ./calculator --model gemini-2.5-flash
 ```
 
 ---
 
-## Running Tests
+## Running Automated Tests
 
-### 1. Tool Security & Boundary Tests
-Run the test scripts to verify path sandboxing, boundary restrictions, and truncation handling:
-
-```bash
-# Test file reader and truncation limit
-uv run python test_get_file_content.py
-
-# Test directory listing and path traversal blocking
-uv run python test_get_files_info.py
-
-# Test Python runner, argument passing, and timeout safeguards
-uv run python test_run_python_file.py
-
-# Test safe file writing
-uv run python test_write_file.py
-```
-
-### 2. Calculator Target Application Tests
-Run unit tests for the target calculator application directly:
+The project includes a comprehensive, automated test suite built with **`pytest`**:
 
 ```bash
-uv run python calculator/tests.py
+# Run all unit tests
+uv run pytest
+
+# Run with verbose output
+uv run pytest -v
 ```
 
----
-
-## Security Audit Checklist
-
-Before pushing changes or deploying:
-- [x] `.env` is listed in `.gitignore` and not tracked by Git.
-- [x] No API keys or credentials appear in commit history.
-- [x] Path traversal protections are active on all filesystem tools.
-- [x] Subprocess execution limits (timeout & extension checks) are enforced.
-- [x] `.env.example` contains only placeholder values.
+### What is tested:
+- **Sandbox Security (`tests/test_security.py`)**: Tests path traversal attacks, relative path resolution, and absolute path containment.
+- **Tools & Registry (`tests/test_tools.py`)**: Tests tool registration, file reading/writing, size limits, subprocess execution, and error handling.
+- **Agent Orchestration (`tests/test_agent.py`)**: Tests the multi-turn agent loop, tool dispatching, iteration limits, and LLM responses using Mock clients (runs offline with zero API costs).
 
 ---
 
 ## License
 
-This project is licensed under the [MIT License](LICENSE) (or your chosen repository license).
+This project is licensed under the [MIT License](LICENSE).
