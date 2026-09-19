@@ -1,6 +1,6 @@
 # Autonomous AI Software Engineering Agent
 
-An autonomous, multi-turn AI software engineering agent powered by the **Google GenAI SDK** (`google-genai`) and Google's **Gemini 2.5 Flash** model. Engineered according to professional software engineering principles (**SOLID**, **DRY**, **KISS**), the agent autonomously inspects source code, diagnoses bugs and logical discrepancies, applies verified code fixes, and executes unit tests within a strictly sandboxed environment.
+An autonomous, multi-turn AI software engineering agent powered by **OpenRouter API** (`openai` client). Engineered according to professional software engineering principles (**SOLID**, **DRY**, **KISS**), the agent autonomously inspects source code, diagnoses bugs and logical discrepancies, applies verified code fixes, and executes unit tests within a strictly sandboxed environment.
 
 ---
 
@@ -20,6 +20,7 @@ An autonomous, multi-turn AI software engineering agent powered by the **Google 
   - [Environment Configuration](#environment-configuration)
 - [Usage Guide](#usage-guide)
   - [Basic Execution](#basic-execution)
+  - [Interactive Mode](#interactive-mode)
   - [Verbose Mode](#verbose-mode)
   - [Custom Model & Working Directory](#custom-model--working-directory)
 - [Running Automated Tests](#running-automated-tests)
@@ -29,7 +30,7 @@ An autonomous, multi-turn AI software engineering agent powered by the **Google 
 
 ## Overview
 
-Modern software debugging requires iterative reasoning: reading file structures, inspecting implementations, analyzing mathematical and logical precedence, modifying code, and verifying behavior with tests.
+Modern software debugging requires iterative reasoning: reading file structures, searching symbols, inspecting implementations, modifying code, and verifying behavior with tests.
 
 This project implements an autonomous **ReAct (Reason + Act)** agent loop:
 1. **Formulate Hypothesis**: Analyzes user prompt and repository layout.
@@ -60,12 +61,12 @@ This project implements an autonomous **ReAct (Reason + Act)** agent loop:
                     |                  v                 |
                     |        +-------------------+       |
          Model      |        |   BaseLLMClient   |       |
-       Response     |        | (llm/gemini.py)   |       |
+       Response     |        | (llm/openrouter.py)       |
                     |        +---------+---------+       |
                     |                  |                 |
                     |                  v                 |
                     |        +-------------------+       |
-                    |        | Gemini 2.5 Flash  |       |
+                    |        |    OpenRouter     |       |
                     |        +---------+---------+       |
                     |                  |                 |
                     |       [Function Call Generated]    |
@@ -73,6 +74,7 @@ This project implements an autonomous **ReAct (Reason + Act)** agent loop:
                     |                  v                 |
                     |        +-------------------+       |
                     |        |   ToolRegistry    |       |
+
                     |        | (tools/registry)  |       |
                     |        +---------+---------+       |
                     |                  |                 |
@@ -177,25 +179,21 @@ aiagent/
 ├── llm/                        # LLM provider abstraction layer (DIP)
 │   ├── __init__.py
 │   ├── base.py                 # BaseLLMClient abstract interface
-│   └── gemini.py               # Google Gemini client implementation
+│   └── openrouter.py           # OpenRouter API client (OpenAI-compatible)
 │
 ├── tools/                      # Modular tool ecosystem (OCP & DRY)
 │   ├── __init__.py
 │   ├── base.py                 # BaseTool abstract class
 │   ├── registry.py             # ToolRegistry with decorator support (@register)
 │   ├── security.py             # Centralized path resolution & sandbox validation
-│   ├── file_tools.py           # get_files_info, get_file_content, write_file
-│   └── execution_tools.py      # run_python_file with timeout protection
-│
-├── functions/                  # Backwards-compatible shims
-│   ├── get_files_info.py
-│   ├── get_file_content.py
-│   ├── write_file.py
-│   └── run_python_file.py
+│   ├── file_tools.py           # get_files_info, get_file_content, write_file, edit_file
+│   ├── execution_tools.py      # run_python_file with timeout protection
+│   └── search_tools.py         # search_in_files (grep-like file search)
 │
 ├── tests/                      # Automated test suite (pytest)
 │   ├── test_security.py        # Path traversal & sandbox boundary tests
 │   ├── test_tools.py           # Tool registration, execution, and boundary tests
+│   ├── test_openrouter.py      # OpenRouter client & retry logic tests
 │   └── test_agent.py           # Agent orchestration, mocking, and iteration tests
 │
 └── calculator/                 # Target project (playground for the agent)
@@ -217,9 +215,11 @@ All tools inherit from [`BaseTool`](tools/base.py) and are registered automatica
 | Tool | Parameters | Description | Security Controls |
 | :--- | :--- | :--- | :--- |
 | `get_files_info` | `directory: str = "."` | Lists directory files, byte sizes, and directory status. | Rejects paths escaping the working directory. |
-| `get_file_content` | `file_path: str` | Reads file content with character truncation protection. | Path validation + 10,000 character truncation. |
-| `write_file` | `file_path: str`, `content: str` | Writes or overwrites a file safely. | Path validation + automatic directory creation. |
-| `run_python_file` | `file_path: str`, `args: list[str] = None` | Executes a Python script in a sandboxed subprocess. | Must be `.py` + 30s timeout + isolated CWD. |
+| `get_file_content` | `file_path: str, start_line: int, end_line: int` | Reads file content with optional line ranges and truncation protection. | Path validation + line bounds + max char limit. |
+| `write_file` | `file_path: str, content: str` | Writes or overwrites a file safely. | Path validation + automatic directory creation. |
+| `edit_file` | `file_path: str, target_content: str, replacement_content: str` | Surgically edits a unique block of text in a file. | Path validation + uniqueness verification. |
+| `search_in_files` | `query: str, directory: str = ".", file_pattern: str = None` | Fast grep-like search across files. | Ignores `.git`, `.venv`, etc. + result limit. |
+| `run_python_file` | `file_path: str, args: list[str] = None` | Executes a Python script in a sandboxed subprocess. | Must be `.py` + 30s timeout + isolated CWD. |
 
 ---
 
@@ -239,7 +239,7 @@ The agent defaults to `./calculator` as its working directory.
 
 ### Prerequisites
 - **Python 3.10+**
-- A **Google Gemini API Key** (get one free at [Google AI Studio](https://aistudio.google.com/))
+- An **OpenRouter API Key** (get one at [OpenRouter](https://openrouter.ai/keys))
 - (Recommended) **uv** package manager: [https://docs.astral.sh/uv/](https://docs.astral.sh/uv/)
 
 ---
@@ -279,9 +279,9 @@ pip install -e .
    cp .env.example .env
    ```
 
-2. Add your Gemini API key inside `.env`:
+2. Add your OpenRouter API key inside `.env`:
    ```env
-   GEMINI_API_KEY="AIzaSyYourActualAPIKeyHere"
+   OPENROUTER_API_KEY="sk-or-v1-your-key-here"
    ```
 
 ---
@@ -295,10 +295,11 @@ Run the agent by passing the engineering task description as an argument:
 uv run python main.py "Inspect the calculator project and check if all tests pass."
 ```
 
-Or ask the agent to diagnose and repair bugs:
+### Interactive Mode
+Run the agent in an interactive conversational session:
 
 ```bash
-uv run python main.py "Investigate the calculator codebase, fix any operator precedence bugs, and verify with tests."
+uv run python main.py -i
 ```
 
 ### Verbose Mode
@@ -312,8 +313,9 @@ uv run python main.py "Run tests and summarize findings" --verbose
 You can customize the model and working directory directly via CLI arguments:
 
 ```bash
-uv run python main.py "Find issues" --working-dir ./calculator --model gemini-2.5-flash
+uv run python main.py "Find issues" --working-dir ./calculator --model google/gemini-2.5-flash
 ```
+
 
 ---
 

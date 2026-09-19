@@ -25,14 +25,3 @@ class BaseTool(ABC):
             },
         }
 
-    def to_genai_declaration(self) -> Any:
-        """Compatibility converter to Google GenAI FunctionDeclaration if needed."""
-        try:
-            from google.genai import types
-            return types.FunctionDeclaration(
-                name=self.name,
-                description=self.description,
-                parameters=self.parameters_schema,
-            )
-        except Exception:
-            return self.to_tool_declaration()

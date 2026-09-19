@@ -95,3 +95,33 @@ def test_openrouter_tool_call_parsing():
         assert tc.id == "call_abc123"
         assert tc.name == "write_file"
         assert tc.args == {"file_path": "foo.py", "content": "print(1)"}
+
+
+def test_openrouter_retry_on_rate_limit():
+    from openai import RateLimitError
+    from llm.openrouter import OpenRouterLLMClient
+
+    mock_client = MagicMock()
+    mock_choice = MagicMock()
+    mock_choice.message.content = "Success after retry"
+    mock_choice.message.tool_calls = None
+    mock_completion = MagicMock()
+    mock_completion.choices = [mock_choice]
+    mock_completion.usage.prompt_tokens = 5
+    mock_completion.usage.completion_tokens = 5
+
+    # Fail once with RateLimitError, then succeed
+    mock_err_response = MagicMock()
+    mock_err_response.status_code = 429
+    rate_limit_err = RateLimitError(
+        message="Rate limit reached", response=mock_err_response, body=None
+    )
+    mock_client.chat.completions.create.side_effect = [rate_limit_err, mock_completion]
+
+    with patch("llm.openrouter.OpenAI", return_value=mock_client), patch("time.sleep") as mock_sleep:
+        client = OpenRouterLLMClient(api_key="test-key")
+        resp = client.generate_content(messages=[{"role": "user", "content": "Hi"}])
+        assert resp.text == "Success after retry"
+        assert mock_client.chat.completions.create.call_count == 2
+        mock_sleep.assert_called_once()
+

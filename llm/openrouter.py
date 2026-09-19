@@ -1,8 +1,10 @@
 import json
+import time
 from typing import Any
-from openai import OpenAI
+from openai import OpenAI, APIConnectionError, RateLimitError, InternalServerError, APIStatusError
 import config
 from llm.base import BaseLLMClient, LLMResponse, ToolCall
+
 
 
 class OpenRouterLLMClient(BaseLLMClient):
@@ -60,9 +62,32 @@ class OpenRouterLLMClient(BaseLLMClient):
         if tools:
             create_kwargs["tools"] = tools
 
-        response = self.client.chat.completions.create(**create_kwargs)
+        last_exception: Exception | None = None
+        response = None
+        max_retries = 3
+
+        for attempt in range(max_retries):
+            try:
+                response = self.client.chat.completions.create(**create_kwargs)
+                break
+            except (APIConnectionError, RateLimitError, InternalServerError) as e:
+                last_exception = e
+                if attempt < max_retries - 1:
+                    time.sleep(1.0 * (2 ** attempt))
+                else:
+                    raise
+            except APIStatusError as e:
+                last_exception = e
+                if e.status_code in (429, 500, 502, 503, 504) and attempt < max_retries - 1:
+                    time.sleep(1.0 * (2 ** attempt))
+                else:
+                    raise
+
+        if response is None and last_exception:
+            raise last_exception
 
         choice = response.choices[0]
+
         message = choice.message
 
         tool_calls: list[ToolCall] = []

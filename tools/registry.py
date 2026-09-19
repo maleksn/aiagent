@@ -43,19 +43,8 @@ class ToolRegistry:
         """Generates OpenAI/OpenRouter-compatible tool schemas for all registered tools."""
         return [tool.to_tool_declaration() for tool in self._tools.values()]
 
-    def to_genai_tool(self) -> Any:
-        """Compatibility converter to Google GenAI types.Tool if needed."""
-        try:
-            from google.genai import types
-            return types.Tool(
-                function_declarations=[
-                    tool.to_genai_declaration() for tool in self._tools.values()
-                ]
-            )
-        except Exception:
-            return self.to_tools()
-
     def execute(self, name: str, **kwargs) -> str:
+
         """
         Executes a registered tool by name.
         Returns error string if tool is not found or if execution fails.
