@@ -4,6 +4,8 @@ from tools.security import SecurityError, resolve_safe_path
 from tools.file_tools import GetFilesInfoTool, GetFileContentTool, WriteFileTool, EditFileTool
 from tools.execution_tools import RunPythonFileTool
 from tools.search_tools import SearchInFilesTool
+from tools.bash_tool import BashCommandTool
+from tools.git_tool import GitStatusTool, GitDiffTool, GitCheckpointTool
 
 __all__ = [
     "BaseTool",
@@ -17,5 +19,9 @@ __all__ = [
     "EditFileTool",
     "RunPythonFileTool",
     "SearchInFilesTool",
+    "BashCommandTool",
+    "GitStatusTool",
+    "GitDiffTool",
+    "GitCheckpointTool",
 ]
 

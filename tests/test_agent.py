@@ -123,3 +123,30 @@ def test_agent_iteration_limit():
     assert result.success is False
     assert "maximum iteration limit" in (result.error or "")
     assert result.total_iterations == 2
+
+
+def test_agent_loop_steering_intervention():
+    loop_call = ToolCall(id="call_1", name="search_tool", args={"query": "hello"})
+    resp_tool = LLMResponse(text=None, tool_calls=[loop_call], prompt_tokens=5, completion_tokens=5)
+    resp_final = LLMResponse(text="Recovered from loop", tool_calls=[], prompt_tokens=5, completion_tokens=5)
+
+    registry = ToolRegistry()
+
+    class SearchTool(BaseTool):
+        name = "search_tool"
+        description = "search"
+        parameters_schema = {"type": "object"}
+
+        def execute(self, **kwargs) -> str:
+            return "No match"
+
+    registry.register(SearchTool)
+
+    # 3 repeated calls then 1 final response
+    client = MockLLMClient([resp_tool, resp_tool, resp_tool, resp_final])
+    agent = Agent(llm_client=client, registry=registry, max_iterations=5)
+
+    result = agent.run("Find hello")
+    assert result.success is True
+    assert result.final_text == "Recovered from loop"
+    assert result.total_iterations == 4

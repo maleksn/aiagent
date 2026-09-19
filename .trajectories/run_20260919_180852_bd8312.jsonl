@@ -1,0 +1,2 @@
+{"event": "session_start", "run_id": "run_20260919_180852_bd8312", "timestamp": "2026-09-19T18:08:52.236354", "prompt": "Hello", "model": "unknown", "working_directory": "./calculator"}
+{"event": "session_end", "run_id": "run_20260919_180852_bd8312", "timestamp": "2026-09-19T18:08:52.236556", "success": true, "final_text": "Done!", "total_iterations": 1, "total_prompt_tokens": 10, "total_response_tokens": 5, "total_tokens": 15, "estimated_cost_usd": 5e-06, "error": null}

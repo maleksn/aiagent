@@ -7,12 +7,15 @@ An autonomous, multi-turn AI software engineering agent powered by **OpenRouter 
 ## Table of Contents
 
 - [Overview](#overview)
+- [Harness Engineering (Agent = Model + Harness)](#harness-engineering-agent--model--harness)
 - [Architecture & Workflow](#architecture--workflow)
 - [Software Engineering Principles](#software-engineering-principles)
 - [Core Features](#core-features)
 - [Security & Secrets Management](#security--secrets-management)
 - [Repository Structure](#repository-structure)
 - [Available Agent Tools & Registry](#available-agent-tools--registry)
+- [Evaluation Harness & Benchmarks](#evaluation-harness--benchmarks)
+- [Ori Harness Integration](#ori-harness-integration)
 - [The Target Playground (`calculator/`)](#the-target-playground-calculator)
 - [Getting Started](#getting-started)
   - [Prerequisites](#prerequisites)
@@ -21,7 +24,9 @@ An autonomous, multi-turn AI software engineering agent powered by **OpenRouter 
 - [Usage Guide](#usage-guide)
   - [Basic Execution](#basic-execution)
   - [Interactive Mode](#interactive-mode)
-  - [Verbose Mode](#verbose-mode)
+  - [Verbose & Trace Mode](#verbose--trace-mode)
+  - [Replaying Trajectories](#replaying-trajectories)
+  - [Budget & Cost Controls](#budget--cost-controls)
   - [Custom Model & Working Directory](#custom-model--working-directory)
 - [Running Automated Tests](#running-automated-tests)
 - [License](#license)
@@ -37,6 +42,35 @@ This project implements an autonomous **ReAct (Reason + Act)** agent loop:
 2. **Execute Tools**: Dispatches filesystem inspections, file modifications, or subprocess executions via decoupled, registered tools.
 3. **Receive Feedback**: Collects stdout, stderr, file contents, and error diagnostics directly into conversational context.
 4. **Iterate Autonomously**: Loops (up to a configurable iteration limit, default: 20) until the task is verified and solved.
+
+---
+
+## Harness Engineering (Agent = Model + Harness)
+
+State-of-the-art AI systems recognize that model capability alone is insufficient for autonomous software engineering. The **Agent Harness** provides the operating infrastructure, working memory, security boundaries, and telemetry necessary for high-reliability agentic execution:
+
+1. **Context & Working Memory Harness (`harness/context.py`)**:
+   - **`ObservationTrimmer`**: Prevents context explosion by intelligently truncating large observations using a **Head-and-Tail** preservation strategy (preserving initial execution context and final error stack traces).
+   - **Compaction**: Dynamically compacts older tool observations when history length threatens context limits.
+
+2. **Loop & Steering Harness (`harness/steering.py`)**:
+   - **`LoopDetector`**: Monitors call signatures and automatically halts infinite or repetitive tool loops (e.g. repeating identical arguments 3 times).
+   - **Steering Interventions**: Injects high-priority corrective guidance into the turn prompting the model to re-assess hypotheses.
+   - **Error Enrichment**: Enriches raw tool failures with actionable hints (e.g. suggesting `search_in_files` when paths are not found).
+
+3. **Sandboxed Tooling Harness (`tools/bash_tool.py`, `tools/git_tool.py`)**:
+   - **`bash_command`**: Controlled shell execution with security blacklists (blocking destructive commands like `rm -rf /` or fork bombs) and strict timeout enforcement.
+   - **Git State Harness**: `git_status`, `git_diff` for surgical verification, and `git_checkpoint` for rollback snapshots.
+
+4. **Multi-Dimensional Guardrails (`harness/guardrails.py`)**:
+   - Enforces ceilings on iterations, total tokens, execution duration (wall-clock time), and estimated dollar cost ($USD).
+
+5. **Telemetry & Trajectory Observability (`harness/telemetry.py`)**:
+   - Automatically writes every session trajectory to `.trajectories/<run_id>.jsonl`.
+   - Complete replayability for auditing and post-mortem debugging using `python main.py --replay <file>`.
+
+6. **Micro-Evaluation Benchmark Runner (`harness/eval_runner.py`)**:
+   - Automated evaluation suite (`evals/tasks.json`) running coding benchmarks against isolated workspaces to score Pass@1, tokens, and cost.
 
 ---
 
@@ -174,7 +208,18 @@ aiagent/
 │
 ├── agent/                      # Core agent orchestration module
 │   ├── __init__.py
-│   └── core.py                 # Agent loop, multi-turn context, and token usage
+│   └── core.py                 # Multi-turn loop, context trimming, loop steering, and budget guards
+│
+├── harness/                    # Harness Engineering system
+│   ├── __init__.py
+│   ├── context.py              # ObservationTrimmer (head/tail preservation) and compaction
+│   ├── steering.py             # LoopDetector (cycle detection) and error enrichment
+│   ├── guardrails.py           # BudgetGuard (iterations, tokens, wall-clock time, cost)
+│   ├── telemetry.py            # TrajectoryRecorder (structured JSONL session traces)
+│   └── eval_runner.py          # Benchmark evaluation harness runner (pass@1 scoring)
+│
+├── evals/                      # Reproducible evaluation suites
+│   └── tasks.json              # Benchmark tasks for coding agents
 │
 ├── llm/                        # LLM provider abstraction layer (DIP)
 │   ├── __init__.py
@@ -188,13 +233,22 @@ aiagent/
 │   ├── security.py             # Centralized path resolution & sandbox validation
 │   ├── file_tools.py           # get_files_info, get_file_content, write_file, edit_file
 │   ├── execution_tools.py      # run_python_file with timeout protection
-│   └── search_tools.py         # search_in_files (grep-like file search)
+│   ├── search_tools.py         # search_in_files (grep-like file search)
+│   ├── bash_tool.py            # bash_command with command blacklist & sandboxing
+│   └── git_tool.py             # git_status, git_diff, and git_checkpoint rollback
 │
 ├── tests/                      # Automated test suite (pytest)
 │   ├── test_security.py        # Path traversal & sandbox boundary tests
 │   ├── test_tools.py           # Tool registration, execution, and boundary tests
 │   ├── test_openrouter.py      # OpenRouter client & retry logic tests
-│   └── test_agent.py           # Agent orchestration, mocking, and iteration tests
+│   ├── test_agent.py           # Agent orchestration, mocking, and iteration tests
+│   ├── test_harness_context.py # Context trimmer & head/tail preservation tests
+│   ├── test_harness_steering.py# Loop detection & error enrichment tests
+│   ├── test_bash_tool.py       # Shell execution & blacklist tests
+│   ├── test_git_tool.py        # Git diff, status, and checkpoint tests
+│   ├── test_guardrails.py      # BudgetGuard ceilings & cost tracking tests
+│   ├── test_telemetry.py       # JSONL trajectory recording tests
+│   └── test_eval_runner.py     # Evaluation benchmark runner tests
 │
 └── calculator/                 # Target project (playground for the agent)
     ├── main.py                 # Calculator CLI application
@@ -219,7 +273,42 @@ All tools inherit from [`BaseTool`](tools/base.py) and are registered automatica
 | `write_file` | `file_path: str, content: str` | Writes or overwrites a file safely. | Path validation + automatic directory creation. |
 | `edit_file` | `file_path: str, target_content: str, replacement_content: str` | Surgically edits a unique block of text in a file. | Path validation + uniqueness verification. |
 | `search_in_files` | `query: str, directory: str = ".", file_pattern: str = None` | Fast grep-like search across files. | Ignores `.git`, `.venv`, etc. + result limit. |
-| `run_python_file` | `file_path: str, args: list[str] = None` | Executes a Python script in a sandboxed subprocess. | Must be `.py` + 30s timeout + isolated CWD. |
+| `bash_command` | `command: str` | Executes bash commands (tests, linters, git) inside the working directory. | Security blacklist (`rm -rf /`, fork bombs) + timeout + CWD sandboxing. |
+| `run_python_file` | `file_path: str, args: list[str] = None` | Executes a Python script in a sandboxed subprocess. | Must be `.py` + timeout + isolated CWD. |
+| `git_status` | *(none)* | Inspects working directory git status (`git status --short`). | Read-only working tree query. |
+| `git_diff` | `file_path: str = None` | Returns surgical line-by-line patch diff against HEAD. | ObservationTrimmer protection. |
+| `git_checkpoint` | `action: str, tag: str = None` | Saves a stash snapshot (`save`) or reverts working directory (`restore`). | Sandboxed to repo working directory. |
+
+---
+
+## Evaluation Harness & Benchmarks
+
+The project comes with a built-in automated **Evaluation Harness** to benchmark agent task success rate (pass@1), token consumption, and cost across coding challenges:
+
+```bash
+# Run benchmark in dry-run mode (tests harness isolation without LLM spend)
+python -m harness.eval_runner --dry-run
+
+# Run full evaluation benchmark against live model
+python -m harness.eval_runner --tasks evals/tasks.json
+```
+
+---
+
+## Ori Harness Integration
+
+The agent harness is fully compatible with OpenRouter's official agent harness CLI **Ori**:
+
+```bash
+# 1. Install Ori
+curl -fsSL https://openrouter.ai/labs/ori/install.sh | bash
+
+# 2. Login via OpenRouter OAuth
+ori login
+
+# 3. Run evaluation comparisons across models
+ori eval
+```
 
 ---
 
@@ -302,11 +391,25 @@ Run the agent in an interactive conversational session:
 uv run python main.py -i
 ```
 
-### Verbose Mode
-Use the `--verbose` flag to inspect each iteration turn, token counts, and tool outputs:
+### Verbose & Trace Mode
+Use the `--verbose` or `--trace` flag to inspect each iteration turn, token counts, tool outputs, and telemetry trajectory paths:
 
 ```bash
-uv run python main.py "Run tests and summarize findings" --verbose
+uv run python main.py "Run tests and summarize findings" --trace
+```
+
+### Replaying Trajectories
+Audit or replay any past agent run recorded in `.trajectories/`:
+
+```bash
+python main.py --replay .trajectories/run_20260919_180000_abc123.jsonl
+```
+
+### Budget & Cost Controls
+Set hard ceilings on token budgets and estimated dollar costs:
+
+```bash
+uv run python main.py "Fix calculator bug" --max-tokens 50000 --max-cost 0.50
 ```
 
 ### Custom Model & Working Directory

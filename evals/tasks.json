@@ -1,0 +1,18 @@
+[
+  {
+    "id": "calc_modulo_operator",
+    "name": "Add Modulo Operator",
+    "prompt": "Add modulo operator '%' support to the calculator in pkg/calculator.py and add corresponding test cases to tests.py. Ensure all tests pass with 'python tests.py'.",
+    "working_dir_template": "calculator",
+    "verification_command": "python tests.py",
+    "expected_exit_code": 0
+  },
+  {
+    "id": "calc_abs_function",
+    "name": "Add Absolute Value Function",
+    "prompt": "Add support for 'abs(x)' in pkg/calculator.py and verify with tests in tests.py.",
+    "working_dir_template": "calculator",
+    "verification_command": "python tests.py",
+    "expected_exit_code": 0
+  }
+]
