@@ -2,7 +2,7 @@ import argparse
 import sys
 from config import config
 from agent.core import Agent
-from llm.gemini import GeminiLLMClient
+from llm.openrouter import OpenRouterLLMClient
 
 
 def main() -> None:
@@ -23,7 +23,7 @@ def main() -> None:
     )
     args = parser.parse_args()
 
-    llm_client = GeminiLLMClient(model=args.model)
+    llm_client = OpenRouterLLMClient(model=args.model)
     agent = Agent(
         llm_client=llm_client,
         working_directory=args.working_dir,

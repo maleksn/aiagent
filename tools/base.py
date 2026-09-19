@@ -1,5 +1,5 @@
 from abc import ABC, abstractmethod
-from google.genai import types
+from typing import Any
 
 
 class BaseTool(ABC):
@@ -7,17 +7,32 @@ class BaseTool(ABC):
 
     name: str
     description: str
-    parameters_schema: types.Schema
+    parameters_schema: dict[str, Any]
 
     @abstractmethod
     def execute(self, **kwargs) -> str:
         """Executes the tool logic and returns the string output or error message."""
         pass
 
-    def to_genai_declaration(self) -> types.FunctionDeclaration:
-        """Converts the tool definition into a Google GenAI FunctionDeclaration."""
-        return types.FunctionDeclaration(
-            name=self.name,
-            description=self.description,
-            parameters=self.parameters_schema,
-        )
+    def to_tool_declaration(self) -> dict[str, Any]:
+        """Converts the tool definition into standard OpenAI/OpenRouter function tool format."""
+        return {
+            "type": "function",
+            "function": {
+                "name": self.name,
+                "description": self.description,
+                "parameters": self.parameters_schema,
+            },
+        }
+
+    def to_genai_declaration(self) -> Any:
+        """Compatibility converter to Google GenAI FunctionDeclaration if needed."""
+        try:
+            from google.genai import types
+            return types.FunctionDeclaration(
+                name=self.name,
+                description=self.description,
+                parameters=self.parameters_schema,
+            )
+        except Exception:
+            return self.to_tool_declaration()

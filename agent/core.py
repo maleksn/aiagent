@@ -1,10 +1,9 @@
-import sys
+import json
 from dataclasses import dataclass
-from typing import Callable
-from google.genai import types
+from typing import Any, Callable
 from config import config
-from llm.base import BaseLLMClient
-from llm.gemini import GeminiLLMClient
+from llm.base import BaseLLMClient, ToolCall
+from llm.openrouter import OpenRouterLLMClient
 from tools.registry import ToolRegistry, default_registry
 from prompts import system_prompt as default_system_prompt
 
@@ -37,7 +36,7 @@ class Agent:
         verbose: bool = False,
         log_callback: Callable[[str], None] | None = None,
     ) -> None:
-        self.llm_client = llm_client or GeminiLLMClient()
+        self.llm_client = llm_client or OpenRouterLLMClient()
         self.registry = registry or default_registry
         self.system_prompt = system_prompt
         self.working_directory = working_directory
@@ -48,49 +47,70 @@ class Agent:
 
     def run(self, prompt: str) -> AgentResult:
         """Runs the agent loop for the given user prompt."""
-        messages: list[types.Content] = [
-            types.Content(
-                role="user",
-                parts=[types.Part(text=prompt)],
-            )
+        messages: list[dict[str, Any]] = [
+            {"role": "user", "content": prompt}
         ]
 
         total_prompt_tokens = 0
         total_response_tokens = 0
 
         for iteration in range(self.max_iterations):
-            response = self.llm_client.generate_content(
-                contents=messages,
-                tools=[self.registry.to_genai_tool()],
-                system_instruction=self.system_prompt,
-                temperature=self.temperature,
-            )
+            try:
+                response = self.llm_client.generate_content(
+                    messages=messages,
+                    tools=self.registry.to_tools(),
+                    system_instruction=self.system_prompt,
+                    temperature=self.temperature,
+                )
+            except Exception as e:
+                return AgentResult(
+                    success=False,
+                    final_text=None,
+                    total_iterations=iteration + 1,
+                    total_prompt_tokens=total_prompt_tokens,
+                    total_response_tokens=total_response_tokens,
+                    error=f"LLM generation failed: {e}",
+                )
 
-            if response.usage_metadata:
-                p_tokens = response.usage_metadata.prompt_token_count or 0
-                r_tokens = response.usage_metadata.candidates_token_count or 0
-                total_prompt_tokens += p_tokens
-                total_response_tokens += r_tokens
+            total_prompt_tokens += response.prompt_tokens
+            total_response_tokens += response.completion_tokens
 
-                if self.verbose:
-                    self.log(f"\n--- Iteration {iteration + 1} ---")
-                    self.log(f"User prompt: {prompt}")
-                    self.log(f"Prompt tokens: {p_tokens}")
-                    self.log(f"Response tokens: {r_tokens}")
+            if self.verbose:
+                self.log(f"\n--- Iteration {iteration + 1} ---")
+                self.log(f"User prompt: {prompt}")
+                self.log(f"Prompt tokens: {response.prompt_tokens}")
+                self.log(f"Response tokens: {response.completion_tokens}")
 
-            if response.candidates and response.candidates[0].content:
-                messages.append(response.candidates[0].content)
+            if response.has_tool_calls:
+                # Record assistant message with tool calls
+                assistant_msg: dict[str, Any] = {
+                    "role": "assistant",
+                    "content": response.text,
+                    "tool_calls": [
+                        {
+                            "id": tc.id,
+                            "type": "function",
+                            "function": {
+                                "name": tc.name,
+                                "arguments": (
+                                    json.dumps(tc.args)
+                                    if isinstance(tc.args, dict)
+                                    else str(tc.args)
+                                ),
+                            },
+                        }
+                        for tc in response.tool_calls
+                    ],
+                }
+                messages.append(assistant_msg)
 
-            if response.function_calls:
-                function_results: list[types.Part] = []
-
-                for function_call in response.function_calls:
-                    fn_name = function_call.name or ""
-                    fn_args = dict(function_call.args) if function_call.args else {}
+                for tc in response.tool_calls:
+                    fn_name = tc.name
+                    fn_args = dict(tc.args) if tc.args else {}
                     fn_args["working_directory"] = self.working_directory
 
                     if self.verbose:
-                        self.log(f"Calling function: {fn_name}({function_call.args})")
+                        self.log(f"Calling function: {fn_name}({tc.args})")
                     else:
                         self.log(f" - Calling function: {fn_name}")
 
@@ -99,14 +119,14 @@ class Agent:
                     if self.verbose:
                         self.log(f"-> {raw_result}")
 
-                    part = types.Part.from_function_response(
-                        name=fn_name,
-                        response={"result": raw_result},
+                    messages.append(
+                        {
+                            "role": "tool",
+                            "tool_call_id": tc.id,
+                            "name": fn_name,
+                            "content": str(raw_result),
+                        }
                     )
-                    function_results.append(part)
-
-                messages.append(types.Content(role="user", parts=function_results))
-
             else:
                 final_text = response.text or ""
                 return AgentResult(

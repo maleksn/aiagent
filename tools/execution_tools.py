@@ -1,7 +1,7 @@
 import os
 import subprocess
 import sys
-from google.genai import types
+from typing import Any
 from config import config
 from tools.base import BaseTool
 from tools.registry import default_registry
@@ -12,23 +12,21 @@ from tools.security import SecurityError, resolve_safe_path
 class RunPythonFileTool(BaseTool):
     name = "run_python_file"
     description = "Executes a specified Python file with optional arguments"
-    parameters_schema = types.Schema(
-        type=types.Type.OBJECT,
-        properties={
-            "file_path": types.Schema(
-                type=types.Type.STRING,
-                description="The path of the Python file to run, relative to the working directory",
-            ),
-            "args": types.Schema(
-                type=types.Type.ARRAY,
-                items=types.Schema(
-                    type=types.Type.STRING,
-                ),
-                description="Optional list of command-line arguments to pass to the Python script",
-            ),
+    parameters_schema: dict[str, Any] = {
+        "type": "object",
+        "properties": {
+            "file_path": {
+                "type": "string",
+                "description": "The path of the Python file to run, relative to the working directory",
+            },
+            "args": {
+                "type": "array",
+                "items": {"type": "string"},
+                "description": "Optional list of command-line arguments to pass to the Python script",
+            },
         },
-        required=["file_path"],
-    )
+        "required": ["file_path"],
+    }
 
     def execute(
         self,

@@ -1,50 +1,50 @@
 # call_function.py
 from collections.abc import Callable
-from google.genai import types
+from typing import Any
 from config import DEFAULT_WORKING_DIRECTORY
 from tools.registry import default_registry
 import tools  # Ensure all tools are registered
 
-available_functions = default_registry.to_genai_tool()
+available_functions = default_registry.to_tools()
 function_map: dict[str, Callable[..., str]] = {
     tool.name: tool.execute for tool in default_registry.list_tools()
 }
 
 
 def call_function(
-    function_call: types.FunctionCall,
+    function_call: Any,
     verbose: bool = False,
     working_directory: str = DEFAULT_WORKING_DIRECTORY,
-) -> types.Content:
-    function_name = function_call.name or ""
+) -> dict[str, Any]:
+    if hasattr(function_call, "name"):
+        function_name = function_call.name or ""
+        raw_args = getattr(function_call, "args", {}) or {}
+    elif isinstance(function_call, dict):
+        function_name = function_call.get("name", "")
+        raw_args = function_call.get("args", {})
+    else:
+        function_name = str(function_call)
+        raw_args = {}
 
     if verbose:
-        print(f"Calling function: {function_call.name}({function_call.args})")
+        print(f"Calling function: {function_name}({raw_args})")
     else:
         print(f" - Calling function: {function_name}")
 
     if not default_registry.has(function_name):
-        return types.Content(
-            role="tool",
-            parts=[
-                types.Part.from_function_response(
-                    name=function_name,
-                    response={"error": f"Unknown function: {function_name}"},
-                )
-            ],
-        )
+        return {
+            "role": "tool",
+            "name": function_name,
+            "content": f"Error: Unknown function '{function_name}'",
+        }
 
-    args = dict(function_call.args) if function_call.args else {}
+    args = dict(raw_args) if isinstance(raw_args, dict) else {}
     args["working_directory"] = working_directory
 
     function_result = default_registry.execute(function_name, **args)
 
-    return types.Content(
-        role="tool",
-        parts=[
-            types.Part.from_function_response(
-                name=function_name,
-                response={"result": function_result},
-            )
-        ],
-    )
+    return {
+        "role": "tool",
+        "name": function_name,
+        "content": function_result,
+    }

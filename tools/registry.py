@@ -1,5 +1,4 @@
-from typing import Any, Callable, Type
-from google.genai import types
+from typing import Any, Type
 from tools.base import BaseTool
 
 
@@ -40,11 +39,21 @@ class ToolRegistry:
         """Returns all registered tool instances."""
         return list(self._tools.values())
 
-    def to_genai_tool(self) -> types.Tool:
-        """Generates a Google GenAI types.Tool containing all registered tool declarations."""
-        return types.Tool(
-            function_declarations=[tool.to_genai_declaration() for tool in self._tools.values()]
-        )
+    def to_tools(self) -> list[dict[str, Any]]:
+        """Generates OpenAI/OpenRouter-compatible tool schemas for all registered tools."""
+        return [tool.to_tool_declaration() for tool in self._tools.values()]
+
+    def to_genai_tool(self) -> Any:
+        """Compatibility converter to Google GenAI types.Tool if needed."""
+        try:
+            from google.genai import types
+            return types.Tool(
+                function_declarations=[
+                    tool.to_genai_declaration() for tool in self._tools.values()
+                ]
+            )
+        except Exception:
+            return self.to_tools()
 
     def execute(self, name: str, **kwargs) -> str:
         """

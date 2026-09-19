@@ -1,8 +1,6 @@
 from typing import Any
-from unittest.mock import MagicMock
-from google.genai import types
 from agent.core import Agent
-from llm.base import BaseLLMClient
+from llm.base import BaseLLMClient, LLMResponse, ToolCall
 from tools.registry import ToolRegistry
 from tools.base import BaseTool
 
@@ -10,28 +8,29 @@ from tools.base import BaseTool
 class MockLLMClient(BaseLLMClient):
     """Mock LLM client to simulate conversational turns and tool calls."""
 
-    def __init__(self, responses: list[Any]) -> None:
+    def __init__(self, responses: list[LLMResponse]) -> None:
         self.responses = responses
         self.call_count = 0
 
     def generate_content(
         self,
-        contents: list[types.Content],
-        tools: list[types.Tool] | None = None,
+        messages: list[dict[str, Any]],
+        tools: list[dict[str, Any]] | None = None,
         system_instruction: str = "",
         temperature: float = 0.0,
-    ) -> Any:
+    ) -> LLMResponse:
         resp = self.responses[self.call_count]
         self.call_count += 1
         return resp
 
 
 def test_agent_direct_response():
-    mock_resp = MagicMock()
-    mock_resp.usage_metadata = MagicMock(prompt_token_count=10, candidates_token_count=5)
-    mock_resp.candidates = [MagicMock(content=types.Content(role="model", parts=[types.Part(text="Done!")]))]
-    mock_resp.function_calls = None
-    mock_resp.text = "Done!"
+    mock_resp = LLMResponse(
+        text="Done!",
+        tool_calls=[],
+        prompt_tokens=10,
+        completion_tokens=5,
+    )
 
     client = MockLLMClient([mock_resp])
     agent = Agent(llm_client=client, max_iterations=3)
@@ -46,29 +45,33 @@ def test_agent_direct_response():
 
 def test_agent_tool_calling_flow():
     # Turn 1: LLM requests a tool call
-    call_mock = MagicMock()
-    call_mock.name = "echo_tool"
-    call_mock.args = {"message": "hello"}
-
-    turn1_resp = MagicMock()
-    turn1_resp.usage_metadata = MagicMock(prompt_token_count=10, candidates_token_count=5)
-    turn1_resp.candidates = [MagicMock(content=types.Content(role="model", parts=[]))]
-    turn1_resp.function_calls = [call_mock]
-    turn1_resp.text = None
+    turn1_resp = LLMResponse(
+        text=None,
+        tool_calls=[
+            ToolCall(
+                id="call_echo_1",
+                name="echo_tool",
+                args={"message": "hello"},
+            )
+        ],
+        prompt_tokens=10,
+        completion_tokens=5,
+    )
 
     # Turn 2: LLM finishes after seeing tool response
-    turn2_resp = MagicMock()
-    turn2_resp.usage_metadata = MagicMock(prompt_token_count=15, candidates_token_count=8)
-    turn2_resp.candidates = [MagicMock(content=types.Content(role="model", parts=[types.Part(text="Final answer")]))]
-    turn2_resp.function_calls = None
-    turn2_resp.text = "Final answer"
+    turn2_resp = LLMResponse(
+        text="Final answer",
+        tool_calls=[],
+        prompt_tokens=15,
+        completion_tokens=8,
+    )
 
     registry = ToolRegistry()
 
     class EchoTool(BaseTool):
         name = "echo_tool"
         description = "Echoes input"
-        parameters_schema = types.Schema(type=types.Type.OBJECT)
+        parameters_schema = {"type": "object"}
 
         def execute(self, **kwargs) -> str:
             return f"Echo: {kwargs.get('message')}"
@@ -82,26 +85,31 @@ def test_agent_tool_calling_flow():
     assert result.success is True
     assert result.final_text == "Final answer"
     assert result.total_iterations == 2
+    assert result.total_prompt_tokens == 25
+    assert result.total_response_tokens == 13
 
 
 def test_agent_iteration_limit():
     # An infinite tool call loop
-    call_mock = MagicMock()
-    call_mock.name = "loop_tool"
-    call_mock.args = {}
-
-    loop_resp = MagicMock()
-    loop_resp.usage_metadata = MagicMock(prompt_token_count=5, candidates_token_count=5)
-    loop_resp.candidates = [MagicMock(content=types.Content(role="model", parts=[]))]
-    loop_resp.function_calls = [call_mock]
-    loop_resp.text = None
+    loop_resp = LLMResponse(
+        text=None,
+        tool_calls=[
+            ToolCall(
+                id="call_loop_1",
+                name="loop_tool",
+                args={},
+            )
+        ],
+        prompt_tokens=5,
+        completion_tokens=5,
+    )
 
     registry = ToolRegistry()
 
     class LoopTool(BaseTool):
         name = "loop_tool"
         description = "loops"
-        parameters_schema = types.Schema(type=types.Type.OBJECT)
+        parameters_schema = {"type": "object"}
 
         def execute(self, **kwargs) -> str:
             return "again"
@@ -114,3 +122,4 @@ def test_agent_iteration_limit():
     result = agent.run("Loop forever")
     assert result.success is False
     assert "maximum iteration limit" in (result.error or "")
+    assert result.total_iterations == 2

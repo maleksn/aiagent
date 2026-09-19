@@ -4,7 +4,6 @@ from tools.registry import ToolRegistry, default_registry
 from tools.base import BaseTool
 from tools.file_tools import GetFilesInfoTool, GetFileContentTool, WriteFileTool
 from tools.execution_tools import RunPythonFileTool
-from google.genai import types
 
 
 def test_registry_registration():
@@ -13,7 +12,7 @@ def test_registry_registration():
     class CustomTool(BaseTool):
         name = "custom_tool"
         description = "A custom tool for testing"
-        parameters_schema = types.Schema(type=types.Type.OBJECT)
+        parameters_schema = {"type": "object"}
 
         def execute(self, **kwargs) -> str:
             return "custom result"
@@ -30,6 +29,19 @@ def test_default_registry_has_core_tools():
     assert default_registry.has("get_file_content")
     assert default_registry.has("write_file")
     assert default_registry.has("run_python_file")
+
+
+def test_registry_to_tools_format():
+    tools = default_registry.to_tools()
+    assert isinstance(tools, list)
+    assert len(tools) >= 4
+    for tool in tools:
+        assert tool["type"] == "function"
+        fn = tool["function"]
+        assert "name" in fn
+        assert "description" in fn
+        assert "parameters" in fn
+        assert isinstance(fn["parameters"], dict)
 
 
 def test_write_and_read_file(tmp_path):

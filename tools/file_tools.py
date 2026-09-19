@@ -1,5 +1,5 @@
 import os
-from google.genai import types
+from typing import Any
 from config import config
 from tools.base import BaseTool
 from tools.registry import default_registry
@@ -13,15 +13,15 @@ class GetFilesInfoTool(BaseTool):
         "Lists files in a specified directory relative to the working directory, "
         "providing file size and directory status"
     )
-    parameters_schema = types.Schema(
-        type=types.Type.OBJECT,
-        properties={
-            "directory": types.Schema(
-                type=types.Type.STRING,
-                description="Directory path to list files from, relative to the working directory (default is the working directory itself)",
-            ),
+    parameters_schema: dict[str, Any] = {
+        "type": "object",
+        "properties": {
+            "directory": {
+                "type": "string",
+                "description": "Directory path to list files from, relative to the working directory (default is the working directory itself)",
+            },
         },
-    )
+    }
 
     def execute(self, working_directory: str = config.default_working_directory, directory: str = ".") -> str:
         try:
@@ -51,16 +51,16 @@ class GetFilesInfoTool(BaseTool):
 class GetFileContentTool(BaseTool):
     name = "get_file_content"
     description = "Reads the contents of a specified file relative to the working directory"
-    parameters_schema = types.Schema(
-        type=types.Type.OBJECT,
-        properties={
-            "file_path": types.Schema(
-                type=types.Type.STRING,
-                description="The path of the file to read, relative to the working directory",
-            ),
+    parameters_schema: dict[str, Any] = {
+        "type": "object",
+        "properties": {
+            "file_path": {
+                "type": "string",
+                "description": "The path of the file to read, relative to the working directory",
+            },
         },
-        required=["file_path"],
-    )
+        "required": ["file_path"],
+    }
 
     def execute(self, working_directory: str = config.default_working_directory, file_path: str = "") -> str:
         if not file_path:
@@ -86,20 +86,20 @@ class GetFileContentTool(BaseTool):
 class WriteFileTool(BaseTool):
     name = "write_file"
     description = "Writes or overwrites content to a specified file relative to the working directory"
-    parameters_schema = types.Schema(
-        type=types.Type.OBJECT,
-        properties={
-            "file_path": types.Schema(
-                type=types.Type.STRING,
-                description="The path of the file to write to, relative to the working directory",
-            ),
-            "content": types.Schema(
-                type=types.Type.STRING,
-                description="The text content to write into the file",
-            ),
+    parameters_schema: dict[str, Any] = {
+        "type": "object",
+        "properties": {
+            "file_path": {
+                "type": "string",
+                "description": "The path of the file to write to, relative to the working directory",
+            },
+            "content": {
+                "type": "string",
+                "description": "The text content to write into the file",
+            },
         },
-        required=["file_path", "content"],
-    )
+        "required": ["file_path", "content"],
+    }
 
     def execute(self, working_directory: str = config.default_working_directory, file_path: str = "", content: str = "") -> str:
         if not file_path:
